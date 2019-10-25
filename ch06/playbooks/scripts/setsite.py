@@ -12,9 +12,18 @@ import sys
 proj_dir = os.path.expanduser(os.environ['PROJECT_DIR'])
 sys.path.append(proj_dir)
 
-os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+#os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from mezzanine.utils.conf import real_project_name
+settings_module = "%s.settings" % real_project_name("project")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_module)
+
+
+
 from django.conf import settings
+import django
+django.setup()
 from django.contrib.sites.models import Site
+
 
 domain = os.environ['WEBSITE_DOMAIN']
 Site.objects.filter(id=settings.SITE_ID).update(domain=domain)

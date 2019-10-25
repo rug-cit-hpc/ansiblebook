@@ -3,7 +3,7 @@
   hosts: web
   vars:
     user: "{{ ansible_ssh_user }}"
-    proj_name: mezzanine-example
+    proj_name: mezzanine_example
     venv_home: "{{ ansible_env.HOME }}"
     venv_path: "{{ venv_home }}/{{ proj_name }}"
     proj_dirname: project
@@ -14,14 +14,14 @@
     domains:
       - 192.168.33.10.xip.io
       - www.192.168.33.10.xip.io
-    repo_url: git@github.com:lorin/mezzanine-example.git
+    repo_url: 'https://github.com/lorin/mezzanine-example.git'
     gunicorn_port: 8000
     locale: en_US.UTF-8
     # Variables below don't appear in Mezannine's fabfile.py
     # but I've added them for convenience
     conf_path: /etc/nginx/conf
     tls_enabled: True
-    python: "{{ venv_path }}/bin/python"
+    python: "{{ venv_path }}/bin/python3"
     database_name: "{{ proj_name }}"
     database_user: "{{ proj_name }}"
     database_host: localhost
@@ -40,25 +40,30 @@
         - memcached
         - nginx
         - postgresql
-        - python-dev
-        - python-pip
-        - python-psycopg2
-        - python-setuptools
-        - python-virtualenv
-        - supervisor
-    - name: check out the repository on the host
-      git: repo={{ repo_url }} dest={{ proj_path }} accept_hostkey=yes
+        - python3-dev
+        - python3-pip
+        - python3-psycopg2
+        - python3-setuptools
+        - python3-virtualenv
+        - virtualenv
+        #- name: check out the repository on the host
+        # Unfortunately the repository is not compatible with a modern mezzanine.
+        #  git: repo={{ repo_url }} dest={{ proj_path }} accept_hostkey=yes
     - name: install required python packages
-      pip: name={{ item }} virtualenv={{ venv_path }}
+      pip: name={{ item }} virtualenv={{ venv_path }} virtualenv_python=python3
       with_items:
+        - mezzanine  # Installing mezzanine form pip
         - gunicorn
         - setproctitle
         - south
         - psycopg2
         - django-compressor
         - python-memcached
-    - name: install requirements.txt
-      pip: requirements={{ proj_path }}/{{ reqs_path }} virtualenv={{ venv_path }}
+    - name: Create a mezzanine project.
+      shell:
+        cmd: "{{venv_path}}/bin/mezzanine-project {{proj_dirname}}"
+        chdir: "{{venv_path}}"
+        creates: "{{proj_path}}"
     - name: create a user
       postgresql_user:
         name: "{{ database_user }}"
@@ -77,13 +82,17 @@
       sudo_user: postgres
     - name: generate the settings file
       template: src=templates/local_settings.py.j2 dest={{ proj_path }}/local_settings.py
+    - name: Make manage.py executable (workaround)
+      file:
+        path: "{{ proj_path }}/manage.py"
+        mode: 0775
     - name: sync the database, apply migrations, collect static content
       django_manage:
         command: "{{ item }}"
         app_path: "{{ proj_path }}"
         virtualenv: "{{ venv_path }}"
       with_items:
-        - syncdb
+        - makemigrations
         - migrate
         - collectstatic
     - name: set the site id
@@ -100,14 +109,19 @@
         ADMIN_PASSWORD: "{{ admin_pass }}"
     - name: set the gunicorn config file
       template: src=templates/gunicorn.conf.py.j2 dest={{ proj_path }}/gunicorn.conf.py
-    - name: set the supervisor config file
-      template: src=templates/supervisor.conf.j2 dest=/etc/supervisor/conf.d/mezzanine.conf
+    - name: set the systemd config file
+      template: src=templates/systemd.conf.j2 dest=/etc/systemd/system/mezzanine.service
       sudo: True
-      notify: restart supervisor
+      notify: restart systemd
     - name: set the nginx config file
       template: src=templates/nginx.conf.j2 dest=/etc/nginx/sites-available/mezzanine.conf
       notify: restart nginx
       sudo: True
+    - name: enable service at boot
+      systemd:
+        name: mezzanine.service
+        enabled: yes
+      become: True
     - name: enable the nginx config file
       file:
         src: /etc/nginx/sites-available/mezzanine.conf
@@ -136,10 +150,9 @@
       cron: name="poll twitter" minute="*/5" user={{ user }} job="{{ manage }} poll_twitter"
 
   handlers:
-    - name: restart supervisor
-      supervisorctl: name=gunicorn_mezzanine state=restarted
+    - name: restart systemd
+      systemd: name=mezzanine state=restarted daemon_reload=yes
       sudo: True
     - name: restart nginx
       service: name=nginx state=restarted
       sudo: True
-

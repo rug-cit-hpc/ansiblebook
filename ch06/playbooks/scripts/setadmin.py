@@ -12,8 +12,13 @@ import sys
 proj_dir = os.path.expanduser(os.environ['PROJECT_DIR'])
 sys.path.append(proj_dir)
 
-os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+#os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from mezzanine.utils.conf import real_project_name
+settings_module = "%s.settings" % real_project_name("project")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_module)
 
+import django
+django.setup()
 
 from mezzanine.utils.models import get_user_model
 User = get_user_model()
